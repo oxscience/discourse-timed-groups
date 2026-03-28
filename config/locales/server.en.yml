@@ -1,0 +1,31 @@
+en:
+  site_settings:
+    timed_groups_enabled: "Enable timed group memberships"
+    timed_groups_notify_before_expiry: "Notify users before their group access expires"
+    timed_groups_notify_on_expiry: "Notify users when their group access has expired"
+    timed_groups_days_before_expiry_notification: "Days before expiry to send notification"
+  timed_groups:
+    admin_title: "Timed Groups"
+  system_messages:
+    timed_group_expiring_soon:
+      title: "Your access to %{group_name} expires soon"
+      subject_template: "Your access to %{group_name} expires soon"
+      text_body_template: |
+        Hi %{username},
+
+        your access to **%{group_name}** will expire in %{days_remaining} days (on %{expires_at}).
+
+        If you'd like to extend your access, please contact an administrator.
+
+        Thanks!
+    timed_group_expired:
+      title: "Your access to %{group_name} has expired"
+      subject_template: "Your access to %{group_name} has expired"
+      text_body_template: |
+        Hi %{username},
+
+        your access to **%{group_name}** has expired and you have been removed from the group.
+
+        If you'd like to regain access, please contact an administrator.
+
+        Thanks!

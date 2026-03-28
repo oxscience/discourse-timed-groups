@@ -1,0 +1,31 @@
+de:
+  site_settings:
+    timed_groups_enabled: "Zeitlich begrenzte Gruppenmitgliedschaften aktivieren"
+    timed_groups_notify_before_expiry: "Nutzer vor Ablauf ihres Gruppenzugangs benachrichtigen"
+    timed_groups_notify_on_expiry: "Nutzer bei Ablauf ihres Gruppenzugangs benachrichtigen"
+    timed_groups_days_before_expiry_notification: "Tage vor Ablauf fuer Benachrichtigung"
+  timed_groups:
+    admin_title: "Zeitgruppen"
+  system_messages:
+    timed_group_expiring_soon:
+      title: "Dein Zugang zu %{group_name} laeuft bald ab"
+      subject_template: "Dein Zugang zu %{group_name} laeuft bald ab"
+      text_body_template: |
+        Hallo %{username},
+
+        dein Zugang zu **%{group_name}** laeuft in %{days_remaining} Tagen ab (am %{expires_at}).
+
+        Wende dich an einen Administrator, wenn du deinen Zugang verlaengern moechtest.
+
+        Viele Gruesse!
+    timed_group_expired:
+      title: "Dein Zugang zu %{group_name} ist abgelaufen"
+      subject_template: "Dein Zugang zu %{group_name} ist abgelaufen"
+      text_body_template: |
+        Hallo %{username},
+
+        dein Zugang zu **%{group_name}** ist abgelaufen und du wurdest aus der Gruppe entfernt.
+
+        Wende dich an einen Administrator, wenn du erneut Zugang erhalten moechtest.
+
+        Viele Gruesse!

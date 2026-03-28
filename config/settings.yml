@@ -1,0 +1,12 @@
+timed_groups:
+  timed_groups_enabled:
+    default: true
+    client: true
+  timed_groups_notify_before_expiry:
+    default: true
+  timed_groups_notify_on_expiry:
+    default: true
+  timed_groups_days_before_expiry_notification:
+    default: 7
+    min: 1
+    max: 30
