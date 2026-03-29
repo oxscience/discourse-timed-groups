@@ -9,6 +9,8 @@
 
 enabled_site_setting :timed_groups_enabled
 
+register_asset "stylesheets/timed-groups.scss"
+
 TIMED_GROUPS_PLUGIN_NAME = "discourse-timed-groups"
 
 after_initialize do
