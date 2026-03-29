@@ -310,6 +310,9 @@ after_initialize do
     skip_before_action :preload_json
 
     def order_paid
+      # Read raw body once, use for both HMAC and parsing
+      @raw_body = request.raw_post
+
       # 1. Verify HMAC signature
       unless verify_shopify_hmac
         Rails.logger.warn("[TimedGroups] Shopify webhook: invalid HMAC signature")
@@ -317,7 +320,7 @@ after_initialize do
       end
 
       # 2. Parse order data
-      payload = JSON.parse(request.body.string)
+      payload = JSON.parse(@raw_body)
       customer_email = payload.dig("customer", "email")
 
       unless customer_email.present?
@@ -392,9 +395,8 @@ after_initialize do
       secret = SiteSetting.timed_groups_shopify_webhook_secret
       return false if secret.blank?
 
-      request.body.rewind
-      data = request.body.read
-      request.body.rewind
+      data = @raw_body
+      return false if data.blank?
 
       hmac_header = request.headers["X-Shopify-Hmac-Sha256"]
       return false if hmac_header.blank?
