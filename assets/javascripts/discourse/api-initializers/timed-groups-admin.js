@@ -532,20 +532,27 @@ export default apiInitializer("0.1", (api) => {
     }
 
     if (rendered) return;
-    rendered = true;
 
-    // Wait for DOM to settle after Ember transition
-    await new Promise((r) => setTimeout(r, 150));
+    // Wait for Ember to render the template, then find our container
+    const waitForContainer = (attempts = 0) => {
+      return new Promise((resolve) => {
+        const check = () => {
+          const el = document.getElementById("timed-groups-admin");
+          if (el) return resolve(el);
+          if (attempts < 20) {
+            setTimeout(() => { attempts++; check(); }, 150);
+          } else {
+            resolve(null);
+          }
+        };
+        check();
+      });
+    };
 
-    const container =
-      document.querySelector(".admin-plugin-config-area") ||
-      document.querySelector(".admin-contents") ||
-      document.querySelector("#main-outlet .container");
-
+    const container = await waitForContainer();
     if (!container) return;
 
-    // Clear any Ember content and show loading
-    container.innerHTML = '<div class="tg-loading">Lade Daten...</div>';
+    rendered = true;
 
     try {
       await loadData();
