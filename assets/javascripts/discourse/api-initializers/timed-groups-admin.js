@@ -80,10 +80,10 @@ export default apiInitializer("0.1", (api) => {
     return apiFetch("/auto_track");
   }
 
-  async function setAutoTrack(groupId, days) {
+  async function setAutoTrack(groupId, mode, opts = {}) {
     return apiFetch("/auto_track", {
       method: "PUT",
-      body: JSON.stringify({ group_id: groupId, days }),
+      body: JSON.stringify({ group_id: groupId, mode, ...opts }),
     });
   }
 
@@ -626,36 +626,96 @@ export default apiInitializer("0.1", (api) => {
     const errorDiv = el("div", { className: "tg-error" });
     const listDiv = el("div", { className: "tg-auto-track-list" });
 
-    // Build list of groups with auto-track settings
+    function getGroupMode(g) {
+      if (!g.auto_track) return "off";
+      return g.auto_track.mode || "off";
+    }
+
     function renderList() {
       listDiv.innerHTML = "";
       for (const g of allGroups) {
-        const row = el("div", { className: "tg-auto-track-row" }, [
-          el("span", { className: "tg-auto-track-name" }, g.full_name || g.name),
-          el("input", {
-            type: "number",
-            className: "tg-input tg-auto-track-days",
-            value: String(g.auto_track_days || ""),
-            min: "0",
-            placeholder: "aus",
-            "data-group-id": String(g.id),
+        const mode = getGroupMode(g);
+
+        // Mode select
+        const modeSelect = el("select", { className: "tg-input tg-auto-track-mode" },
+          [
+            { v: "off", l: "Aus" },
+            { v: "individual", l: "Individuell" },
+            { v: "license", l: "Gruppenlizenz" },
+          ].map(({ v, l }) => {
+            const opt = el("option", { value: v }, l);
+            if (v === mode) opt.selected = true;
+            return opt;
           }),
-          el("span", { className: "tg-auto-track-label" }, "Tage"),
-          el("button", {
-            className: `btn btn-small ${g.auto_track_days ? "btn-primary" : "btn-default"}`,
-            onClick: async () => {
-              const input = row.querySelector("input");
-              const days = parseInt(input.value) || 0;
-              try {
-                const res = await setAutoTrack(g.id, days);
-                // Update local group data
-                g.auto_track_days = days > 0 ? days : null;
-                renderList();
-              } catch (e) {
-                errorDiv.textContent = "Fehler: " + e.message;
+        );
+
+        // Days input (for individual mode)
+        const daysInput = el("input", {
+          type: "number",
+          className: "tg-input tg-auto-track-days",
+          value: String((g.auto_track && g.auto_track.days) || "365"),
+          min: "1",
+          placeholder: "Tage",
+        });
+
+        // Date input (for license mode)
+        const dateInput = el("input", {
+          type: "date",
+          className: "tg-input tg-auto-track-date",
+          value: (g.auto_track && g.auto_track.expires_at) || "",
+        });
+
+        // Show/hide based on mode
+        daysInput.style.display = mode === "individual" ? "" : "none";
+        dateInput.style.display = mode === "license" ? "" : "none";
+
+        modeSelect.addEventListener("change", () => {
+          daysInput.style.display = modeSelect.value === "individual" ? "" : "none";
+          dateInput.style.display = modeSelect.value === "license" ? "" : "none";
+        });
+
+        const saveBtn = el("button", {
+          className: `btn btn-small ${mode !== "off" ? "btn-primary" : "btn-default"}`,
+          onClick: async () => {
+            errorDiv.textContent = "";
+            const selectedMode = modeSelect.value;
+            try {
+              if (selectedMode === "off") {
+                await setAutoTrack(g.id, selectedMode, {});
+                g.auto_track = null;
+              } else if (selectedMode === "individual") {
+                const days = parseInt(daysInput.value) || 0;
+                if (days < 1) { errorDiv.textContent = "Bitte Tage eingeben"; return; }
+                await setAutoTrack(g.id, selectedMode, { days });
+                g.auto_track = { mode: "individual", days };
+              } else if (selectedMode === "license") {
+                if (!dateInput.value) { errorDiv.textContent = "Bitte Ablaufdatum eingeben"; return; }
+                await setAutoTrack(g.id, selectedMode, { expires_at: dateInput.value });
+                g.auto_track = { mode: "license", expires_at: dateInput.value };
               }
-            },
-          }, g.auto_track_days ? "Aktiv" : "Setzen"),
+              renderList();
+            } catch (e) {
+              errorDiv.textContent = "Fehler: " + e.message;
+            }
+          },
+        }, "Speichern");
+
+        // Status label
+        let statusText = "";
+        if (mode === "individual") statusText = `${g.auto_track.days}d pro User`;
+        if (mode === "license") statusText = `bis ${g.auto_track.expires_at}`;
+
+        const row = el("div", { className: "tg-auto-track-row" }, [
+          el("div", { className: "tg-auto-track-name" }, [
+            el("strong", {}, g.full_name || g.name),
+            statusText ? el("span", { className: "tg-auto-track-status" }, ` — ${statusText}`) : null,
+          ].filter(Boolean)),
+          el("div", { className: "tg-auto-track-controls" }, [
+            modeSelect,
+            daysInput,
+            dateInput,
+            saveBtn,
+          ]),
         ]);
         listDiv.appendChild(row);
       }
@@ -669,9 +729,8 @@ export default apiInitializer("0.1", (api) => {
     modal.append(
       el("h3", {}, "Auto-Track Einstellungen"),
       el("p", { className: "tg-modal-desc" },
-        "Wenn Auto-Track fuer eine Gruppe aktiv ist, bekommt jeder neue User automatisch " +
-        "eine zeitlich begrenzte Mitgliedschaft mit der eingestellten Laufzeit. " +
-        "Setze 0 oder leer zum Deaktivieren."),
+        "Individuell: Jeder User bekommt eigene X Tage ab Beitritt. " +
+        "Gruppenlizenz: Festes Ablaufdatum — wer spaeter kommt, bekommt nur die Restzeit."),
       listDiv,
       errorDiv,
       actions,

@@ -184,27 +184,35 @@ after_initialize do
 
     # GET /timed-groups/admin/auto_track
     # Returns auto-track settings per group
+    # Format: { "group_id" => { "mode" => "individual"|"license", "days" => N, "expires_at" => "YYYY-MM-DD" } }
     def auto_track_index
-      settings = {}
-      PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups")&.each do |group_id_str, days|
-        settings[group_id_str] = days
+      settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+      # Migrate old format (plain integer) to new format
+      settings.each do |gid, val|
+        settings[gid] = { "mode" => "individual", "days" => val.to_i } if val.is_a?(Integer) || val.is_a?(String)
       end
       render json: { auto_track: settings }
     end
 
     # PUT /timed-groups/admin/auto_track
-    # Set or remove auto-track for a group
-    # Params: group_id, days (0 or nil to disable)
+    # Params: group_id, mode ("individual"|"license"|"off"), days (for individual), expires_at (for license)
     def auto_track_update
       group_id = params[:group_id].to_s
-      days     = params[:days].to_i
+      mode     = params[:mode] || "individual"
 
       settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+      # Migrate old format
+      settings.each do |gid, val|
+        settings[gid] = { "mode" => "individual", "days" => val.to_i } if val.is_a?(Integer) || val.is_a?(String)
+      end
 
-      if days > 0
-        settings[group_id] = days
-      else
+      if mode == "off" || (mode == "individual" && params[:days].to_i <= 0)
         settings.delete(group_id)
+      elsif mode == "individual"
+        settings[group_id] = { "mode" => "individual", "days" => params[:days].to_i }
+      elsif mode == "license"
+        raise Discourse::InvalidParameters.new("expires_at required for license mode") if params[:expires_at].blank?
+        settings[group_id] = { "mode" => "license", "expires_at" => params[:expires_at].to_s }
       end
 
       PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups", settings)
@@ -213,9 +221,20 @@ after_initialize do
     end
 
     def available_groups
+      auto_settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+      # Migrate old format
+      auto_settings.each do |gid, val|
+        auto_settings[gid] = { "mode" => "individual", "days" => val.to_i } if val.is_a?(Integer) || val.is_a?(String)
+      end
+
       groups = Group.where(automatic: false).order(:name).map do |g|
-        auto_days = (PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {})[g.id.to_s]
-        { id: g.id, name: g.name, full_name: g.full_name, auto_track_days: auto_days }
+        setting = auto_settings[g.id.to_s]
+        {
+          id: g.id,
+          name: g.name,
+          full_name: g.full_name,
+          auto_track: setting,
+        }
       end
 
       render json: { groups: groups }
@@ -327,27 +346,48 @@ after_initialize do
 
   # ── Auto-track hook ───────────────────────────────────
   # When a user is added to a group with auto-track enabled,
-  # automatically create a timed membership
+  # automatically create a timed membership.
+  # Supports two modes:
+  #   - individual: each user gets X days from join date
+  #   - license: fixed expiry for the group, latecomers get remaining time
   on(:user_added_to_group) do |user, group, opts|
     next unless SiteSetting.timed_groups_enabled
 
-    settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
-    days = settings[group.id.to_s]
-    next unless days.present? && days.to_i > 0
+    all_settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+    setting = all_settings[group.id.to_s]
+
+    # Migrate old format (plain integer)
+    setting = { "mode" => "individual", "days" => setting.to_i } if setting.is_a?(Integer) || setting.is_a?(String)
+    next unless setting.is_a?(Hash) && setting["mode"].present?
 
     # Skip if already has a timed membership
     next if ::TimedGroupMembership.exists?(user_id: user.id, group_id: group.id)
+
+    expires_at = nil
+    note = nil
+
+    if setting["mode"] == "individual" && setting["days"].to_i > 0
+      expires_at = setting["days"].to_i.days.from_now
+      note = "Auto-Track (#{setting["days"]}d)"
+    elsif setting["mode"] == "license" && setting["expires_at"].present?
+      expires_at = Time.parse(setting["expires_at"])
+      # Skip if license already expired
+      next if expires_at <= Time.current
+      note = "Gruppenlizenz bis #{expires_at.strftime("%d.%m.%Y")}"
+    end
+
+    next unless expires_at
 
     ::TimedGroupMembership.create!(
       user_id: user.id,
       group_id: group.id,
       starts_at: Time.current,
-      expires_at: days.to_i.days.from_now,
-      note: "Auto-Track",
+      expires_at: expires_at,
+      note: note,
     )
 
     Rails.logger.info(
-      "[TimedGroups] Auto-tracked: user=#{user.username} group=#{group.name} days=#{days}",
+      "[TimedGroups] Auto-tracked (#{setting["mode"]}): user=#{user.username} group=#{group.name}",
     )
   end
 
