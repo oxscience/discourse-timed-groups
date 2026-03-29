@@ -412,6 +412,38 @@
   font-size: 0.9em;
 }
 
+// Messages
+.tg-msg-textarea {
+  min-height: 120px;
+  font-family: monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.tg-msg-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3em;
+}
+
+.tg-msg-placeholders {
+  margin-bottom: 1em;
+  padding: 0.5em 0.75em;
+  background: var(--primary-very-low);
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: var(--primary-medium);
+
+  code {
+    padding: 0.1em 0.4em;
+    background: var(--primary-low);
+    border-radius: 3px;
+    font-size: 0.9em;
+  }
+}
+
 // Error
 .tg-error {
   color: var(--danger);

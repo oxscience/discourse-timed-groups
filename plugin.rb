@@ -257,6 +257,23 @@ after_initialize do
       }
     end
 
+    # GET /timed-groups/admin/messages
+    def messages_config
+      templates = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "message_templates") || {}
+      defaults = Jobs::ExpireTimedMemberships::DEFAULTS
+      render json: { templates: templates, defaults: defaults }
+    end
+
+    # PUT /timed-groups/admin/messages
+    def messages_update
+      templates = {}
+      %w[expiring_soon_subject expiring_soon_body expired_subject expired_body].each do |key|
+        templates[key] = params[key].to_s if params.key?(key)
+      end
+      PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "message_templates", templates)
+      render json: { success: true, templates: templates }
+    end
+
     def available_groups
       auto_settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
       # Migrate old format
@@ -438,11 +455,11 @@ after_initialize do
           group.remove(user) if group.users.include?(user)
 
           if SiteSetting.timed_groups_notify_on_expiry
-            SystemMessage.create_from_system_user(
+            send_custom_pm(
               user,
-              :timed_group_expired,
-              group_name: group.full_name.presence || group.name,
-              renew_link: renew_link_text(group),
+              template: "expired",
+              group: group,
+              vars: { days_remaining: 0 },
             )
           end
 
@@ -456,13 +473,14 @@ after_initialize do
         days = SiteSetting.timed_groups_days_before_expiry_notification
 
         ::TimedGroupMembership.expiring_soon(days).includes(:user, :group).find_each do |membership|
-          SystemMessage.create_from_system_user(
+          send_custom_pm(
             membership.user,
-            :timed_group_expiring_soon,
-            group_name: membership.group.full_name.presence || membership.group.name,
-            days_remaining: membership.days_remaining,
-            expires_at: I18n.l(membership.expires_at, format: :long),
-            renew_link: renew_link_text(membership.group),
+            template: "expiring_soon",
+            group: membership.group,
+            vars: {
+              days_remaining: membership.days_remaining,
+              expires_at: I18n.l(membership.expires_at, format: :long),
+            },
           )
 
           membership.update!(notified_expiring: true)
@@ -475,16 +493,50 @@ after_initialize do
 
       private
 
-      def renew_link_text(group)
-        # Check if there's a renew URL configured for this group
-        renew_urls = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls") || {}
-        url = renew_urls[group.id.to_s]
+      DEFAULTS = {
+        "expiring_soon_subject" => "Dein Zugang zu {group_name} laeuft bald ab",
+        "expiring_soon_body" => "Hallo {username},\n\ndein Zugang zu **{group_name}** laeuft in {days_remaining} Tagen ab (am {expires_at}).\n\n{renew_link}\n\nViele Gruesse!",
+        "expired_subject" => "Dein Zugang zu {group_name} ist abgelaufen",
+        "expired_body" => "Hallo {username},\n\ndein Zugang zu **{group_name}** ist abgelaufen und du wurdest aus der Gruppe entfernt.\n\n{renew_link}\n\nViele Gruesse!",
+      }.freeze
 
-        if url.present?
-          "Du kannst deinen Zugang hier verlaengern: [Jetzt verlaengern](#{url})"
+      def send_custom_pm(user, template:, group:, vars: {})
+        templates = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "message_templates") || {}
+
+        subject = templates["#{template}_subject"].presence || DEFAULTS["#{template}_subject"]
+        body    = templates["#{template}_body"].presence    || DEFAULTS["#{template}_body"]
+
+        # Build renew link
+        renew_urls = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls") || {}
+        renew_url  = renew_urls[group.id.to_s]
+        renew_link = if renew_url.present?
+          "Du kannst deinen Zugang hier verlaengern: [Jetzt verlaengern](#{renew_url})"
         else
           "Wende dich an einen Administrator, wenn du deinen Zugang verlaengern moechtest."
         end
+
+        # Replace placeholders
+        replacements = {
+          "{username}" => user.username,
+          "{group_name}" => group.full_name.presence || group.name,
+          "{days_remaining}" => vars[:days_remaining].to_s,
+          "{expires_at}" => vars[:expires_at].to_s,
+          "{renew_link}" => renew_link,
+        }
+
+        replacements.each do |placeholder, value|
+          subject = subject.gsub(placeholder, value)
+          body    = body.gsub(placeholder, value)
+        end
+
+        PostCreator.create!(
+          Discourse.system_user,
+          title: subject,
+          raw: body,
+          archetype: Archetype.private_message,
+          target_usernames: [user.username],
+          skip_validations: true,
+        )
       end
     end
   end
@@ -502,7 +554,9 @@ after_initialize do
       put    "/auto_track"              => "timed_groups_admin#auto_track_update"
       get    "/shopify"                 => "timed_groups_admin#shopify_config"
       put    "/shopify"                 => "timed_groups_admin#shopify_update"
-      get    "/groups"                  => "timed_groups_admin#available_groups"
+      get    "/messages"               => "timed_groups_admin#messages_config"
+      put    "/messages"               => "timed_groups_admin#messages_update"
+      get    "/groups"                 => "timed_groups_admin#available_groups"
     end
 
     # Shopify webhook (public, HMAC-verified)

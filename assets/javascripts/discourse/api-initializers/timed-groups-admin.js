@@ -98,6 +98,17 @@ export default apiInitializer("0.1", (api) => {
     });
   }
 
+  async function getMessagesConfig() {
+    return apiFetch("/messages");
+  }
+
+  async function updateMessagesConfig(templates) {
+    return apiFetch("/messages", {
+      method: "PUT",
+      body: JSON.stringify(templates),
+    });
+  }
+
   // ── User search (Discourse API) ───────────────────────
   let searchTimeout = null;
   async function searchUsers(term) {
@@ -185,6 +196,10 @@ export default apiInitializer("0.1", (api) => {
           className: "btn btn-default tg-btn",
           onClick: () => showShopifyModal(container),
         }, "Shopify"),
+        el("button", {
+          className: "btn btn-default tg-btn",
+          onClick: () => showMessagesModal(container),
+        }, "Nachrichten"),
       ]),
     ]);
 
@@ -927,6 +942,124 @@ export default apiInitializer("0.1", (api) => {
       el("p", { className: "tg-modal-desc" },
         "Verbindet Shopify-Kaeufe mit Discourse-Gruppenzugaengen. " +
         "Wenn ein Kunde ein zugeordnetes Produkt kauft, wird er automatisch zur Gruppe hinzugefuegt."),
+      contentDiv,
+    );
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  function showMessagesModal(container) {
+    removeModal();
+
+    const overlay = el("div", { className: "tg-modal-overlay", onClick: removeModal });
+    const modal = el("div", { className: "tg-modal tg-modal--wide" });
+    modal.addEventListener("click", (e) => e.stopPropagation());
+
+    const errorDiv = el("div", { className: "tg-error" });
+    const contentDiv = el("div", {});
+
+    (async () => {
+      try {
+        const config = await getMessagesConfig();
+        const templates = config.templates || {};
+        const defaults = config.defaults || {};
+
+        const fields = [
+          { key: "expiring_soon_subject", label: "Betreff: Zugang laeuft bald ab", type: "input" },
+          { key: "expiring_soon_body", label: "Text: Zugang laeuft bald ab", type: "textarea" },
+          { key: "expired_subject", label: "Betreff: Zugang abgelaufen", type: "input" },
+          { key: "expired_body", label: "Text: Zugang abgelaufen", type: "textarea" },
+        ];
+
+        const inputs = {};
+
+        for (const f of fields) {
+          const value = templates[f.key] || defaults[f.key] || "";
+          let input;
+
+          if (f.type === "textarea") {
+            input = el("textarea", {
+              className: "tg-input tg-input--wide tg-msg-textarea",
+              value: value,
+            });
+            input.value = value;
+            input.rows = 6;
+          } else {
+            input = el("input", {
+              type: "text",
+              className: "tg-input tg-input--wide",
+              value: value,
+            });
+          }
+
+          inputs[f.key] = input;
+
+          const resetBtn = el("button", {
+            className: "btn btn-small btn-default",
+            onClick: () => {
+              input.value = defaults[f.key] || "";
+            },
+          }, "Zuruecksetzen");
+
+          contentDiv.appendChild(
+            el("div", { className: "tg-form-group" }, [
+              el("div", { className: "tg-msg-label-row" }, [
+                el("label", {}, f.label),
+                resetBtn,
+              ]),
+              input,
+            ]),
+          );
+        }
+
+        const placeholderHint = el("div", { className: "tg-msg-placeholders" }, [
+          el("strong", {}, "Platzhalter: "),
+          el("code", {}, "{username}"),
+          " ",
+          el("code", {}, "{group_name}"),
+          " ",
+          el("code", {}, "{days_remaining}"),
+          " ",
+          el("code", {}, "{expires_at}"),
+          " ",
+          el("code", {}, "{renew_link}"),
+        ]);
+
+        const saveBtn = el("button", {
+          className: "btn btn-primary",
+          onClick: async () => {
+            errorDiv.textContent = "";
+            const data = {};
+            for (const f of fields) {
+              data[f.key] = inputs[f.key].value;
+            }
+            try {
+              await updateMessagesConfig(data);
+              alert("Nachrichtentexte gespeichert!");
+            } catch (e) {
+              errorDiv.textContent = "Fehler: " + e.message;
+            }
+          },
+        }, "Speichern");
+
+        contentDiv.append(
+          placeholderHint,
+          errorDiv,
+          el("div", { className: "tg-modal-actions" }, [
+            saveBtn,
+            el("button", { className: "btn btn-default", onClick: removeModal }, "Schliessen"),
+          ]),
+        );
+      } catch (e) {
+        contentDiv.innerHTML = `<div class="tg-error">Fehler beim Laden: ${e.message}</div>`;
+      }
+    })();
+
+    modal.append(
+      el("h3", {}, "Nachrichtentexte anpassen"),
+      el("p", { className: "tg-modal-desc" },
+        "Diese Texte werden als persoenliche Nachricht an User gesendet, wenn ihr Zugang bald ablaeuft oder abgelaufen ist."),
       contentDiv,
     );
 
