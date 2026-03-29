@@ -5,6 +5,7 @@ de:
     timed_groups_notify_on_expiry: "Nutzer bei Ablauf ihres Gruppenzugangs benachrichtigen"
     timed_groups_days_before_expiry_notification: "Tage vor Ablauf fuer Benachrichtigung"
     timed_groups_shopify_webhook_secret: "Shopify Webhook-Secret (aus Shopify Admin > Einstellungen > Benachrichtigungen > Webhooks)"
+    timed_groups_shopify_shop_url: "Shopify Shop-URL (z.B. https://outoftheb-ox.de) — wird fuer Verlaengerungs-Links in Benachrichtigungen genutzt"
   timed_groups:
     admin_title: "Zeitgruppen"
   system_messages:
@@ -16,7 +17,7 @@ de:
 
         dein Zugang zu **%{group_name}** laeuft in %{days_remaining} Tagen ab (am %{expires_at}).
 
-        Wende dich an einen Administrator, wenn du deinen Zugang verlaengern moechtest.
+        %{renew_link}
 
         Viele Gruesse!
     timed_group_expired:
@@ -27,6 +28,6 @@ de:
 
         dein Zugang zu **%{group_name}** ist abgelaufen und du wurdest aus der Gruppe entfernt.
 
-        Wende dich an einen Administrator, wenn du erneut Zugang erhalten moechtest.
+        %{renew_link}
 
         Viele Gruesse!

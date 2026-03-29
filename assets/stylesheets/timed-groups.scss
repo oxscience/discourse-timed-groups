@@ -399,6 +399,19 @@
   width: 160px !important;
 }
 
+.tg-shopify-renew-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.4em;
+}
+
+.tg-shopify-renew-group {
+  min-width: 120px;
+  font-weight: 500;
+  font-size: 0.9em;
+}
+
 // Error
 .tg-error {
   color: var(--danger);

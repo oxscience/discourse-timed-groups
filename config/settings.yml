@@ -13,3 +13,5 @@ timed_groups:
   timed_groups_shopify_webhook_secret:
     default: ""
     secret: true
+  timed_groups_shopify_shop_url:
+    default: ""

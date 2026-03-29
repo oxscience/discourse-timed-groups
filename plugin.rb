@@ -223,27 +223,38 @@ after_initialize do
     # GET /timed-groups/admin/shopify
     def shopify_config
       product_map = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {}
+      renew_urls  = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls") || {}
       render json: {
         webhook_url: "#{Discourse.base_url}/webhooks/shopify/order-paid",
         webhook_secret_configured: SiteSetting.timed_groups_shopify_webhook_secret.present?,
         product_map: product_map,
+        renew_urls: renew_urls,
       }
     end
 
     # PUT /timed-groups/admin/shopify
     def shopify_update
-      product_map = params[:product_map]
-
-      if product_map.present?
-        # Clean up: only keep non-empty mappings
+      if params[:product_map].present?
         cleaned = {}
-        product_map.each do |product_id, group_id|
+        params[:product_map].each do |product_id, group_id|
           cleaned[product_id.to_s] = group_id.to_s if product_id.present? && group_id.present?
         end
         PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map", cleaned)
       end
 
-      render json: { success: true, product_map: PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {} }
+      if params[:renew_urls].present?
+        cleaned = {}
+        params[:renew_urls].each do |group_id, url|
+          cleaned[group_id.to_s] = url.to_s if group_id.present? && url.present?
+        end
+        PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls", cleaned)
+      end
+
+      render json: {
+        success: true,
+        product_map: PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {},
+        renew_urls: PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls") || {},
+      }
     end
 
     def available_groups
@@ -431,6 +442,7 @@ after_initialize do
               user,
               :timed_group_expired,
               group_name: group.full_name.presence || group.name,
+              renew_link: renew_link_text(group),
             )
           end
 
@@ -450,6 +462,7 @@ after_initialize do
             group_name: membership.group.full_name.presence || membership.group.name,
             days_remaining: membership.days_remaining,
             expires_at: I18n.l(membership.expires_at, format: :long),
+            renew_link: renew_link_text(membership.group),
           )
 
           membership.update!(notified_expiring: true)
@@ -457,6 +470,20 @@ after_initialize do
             "[TimedGroups] Notified: user=#{membership.user.username} " \
             "group=#{membership.group.name} days=#{membership.days_remaining}",
           )
+        end
+      end
+
+      private
+
+      def renew_link_text(group)
+        # Check if there's a renew URL configured for this group
+        renew_urls = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_renew_urls") || {}
+        url = renew_urls[group.id.to_s]
+
+        if url.present?
+          "Du kannst deinen Zugang hier verlaengern: [Jetzt verlaengern](#{url})"
+        else
+          "Wende dich an einen Administrator, wenn du deinen Zugang verlaengern moechtest."
         end
       end
     end

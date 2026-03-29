@@ -5,6 +5,7 @@ en:
     timed_groups_notify_on_expiry: "Notify users when their group access has expired"
     timed_groups_days_before_expiry_notification: "Days before expiry to send notification"
     timed_groups_shopify_webhook_secret: "Shopify webhook signing secret (from Shopify Admin > Settings > Notifications > Webhooks)"
+    timed_groups_shopify_shop_url: "Shopify shop URL (e.g. https://outoftheb-ox.de) — used for renewal links in notifications"
   timed_groups:
     admin_title: "Timed Groups"
   system_messages:
@@ -16,7 +17,7 @@ en:
 
         your access to **%{group_name}** will expire in %{days_remaining} days (on %{expires_at}).
 
-        If you'd like to extend your access, please contact an administrator.
+        %{renew_link}
 
         Thanks!
     timed_group_expired:
@@ -27,6 +28,6 @@ en:
 
         your access to **%{group_name}** has expired and you have been removed from the group.
 
-        If you'd like to regain access, please contact an administrator.
+        %{renew_link}
 
         Thanks!

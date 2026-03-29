@@ -91,10 +91,10 @@ export default apiInitializer("0.1", (api) => {
     return apiFetch("/shopify");
   }
 
-  async function updateShopifyConfig(productMap) {
+  async function updateShopifyConfig(productMap, renewUrls) {
     return apiFetch("/shopify", {
       method: "PUT",
-      body: JSON.stringify({ product_map: productMap }),
+      body: JSON.stringify({ product_map: productMap, renew_urls: renewUrls }),
     });
   }
 
@@ -860,6 +860,39 @@ export default apiInitializer("0.1", (api) => {
         const currentMappings = mappings.map(([k, v]) => [k, v]);
         renderMappings(currentMappings);
 
+        // Renew URLs (Shopify product links per group)
+        const renewDiv = el("div", { className: "tg-shopify-mapping" });
+        const renewUrls = Object.entries(config.renew_urls || {});
+        const currentRenewUrls = {};
+        for (const [gid, url] of renewUrls) currentRenewUrls[gid] = url;
+
+        renewDiv.appendChild(el("label", {}, "Verlaengerungs-Links (in Ablauf-Benachrichtigungen):"));
+        renewDiv.appendChild(el("p", { className: "tg-shopify-hint" },
+          "Shopify-Produkt-URL pro Gruppe. Wird in der PM an User gezeigt wenn der Zugang bald ablaeuft."));
+
+        for (const g of allGroups) {
+          const urlInput = el("input", {
+            type: "text",
+            className: "tg-input tg-input--wide",
+            value: currentRenewUrls[String(g.id)] || "",
+            placeholder: "https://outoftheb-ox.de/products/...",
+          });
+          urlInput.addEventListener("input", () => {
+            if (urlInput.value) {
+              currentRenewUrls[String(g.id)] = urlInput.value;
+            } else {
+              delete currentRenewUrls[String(g.id)];
+            }
+          });
+
+          renewDiv.appendChild(
+            el("div", { className: "tg-shopify-renew-row" }, [
+              el("span", { className: "tg-shopify-renew-group" }, g.full_name || g.name),
+              urlInput,
+            ]),
+          );
+        }
+
         // Save button
         const saveBtn = el("button", {
           className: "btn btn-primary",
@@ -870,7 +903,7 @@ export default apiInitializer("0.1", (api) => {
               if (pid && gid) map[pid] = gid;
             }
             try {
-              await updateShopifyConfig(map);
+              await updateShopifyConfig(map, currentRenewUrls);
               alert("Shopify-Konfiguration gespeichert!");
             } catch (e) {
               errorDiv.textContent = "Fehler: " + e.message;
@@ -878,7 +911,7 @@ export default apiInitializer("0.1", (api) => {
           },
         }, "Speichern");
 
-        contentDiv.append(webhookUrl, secretStatus, mappingDiv, errorDiv,
+        contentDiv.append(webhookUrl, secretStatus, mappingDiv, renewDiv, errorDiv,
           el("div", { className: "tg-modal-actions" }, [
             saveBtn,
             el("button", { className: "btn btn-default", onClick: removeModal }, "Schliessen"),
