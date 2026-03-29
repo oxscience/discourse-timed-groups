@@ -2,7 +2,7 @@
 
 # name: discourse-timed-groups
 # about: Zeitlich begrenzte Gruppenmitgliedschaften fuer Discourse
-# version: 0.1.1
+# version: 0.2.0
 # authors: Pat (Out Of The Box Science)
 # url: https://github.com/oxscience/discourse-timed-groups
 # required_version: 2.7.0
@@ -149,9 +149,73 @@ after_initialize do
       render json: { updated: count }
     end
 
+    # POST /timed-groups/admin/memberships/bulk_import
+    # Import all current members of a group with a set duration
+    # Params: group_id, days, note (opt)
+    def bulk_import
+      group = Group.find(params[:group_id])
+      days  = params[:days].to_i
+
+      raise Discourse::InvalidParameters.new("group_id and days required") if days <= 0
+
+      created = 0
+      skipped = 0
+
+      group.users.find_each do |user|
+        existing = ::TimedGroupMembership.find_by(user_id: user.id, group_id: group.id)
+        if existing
+          skipped += 1
+          next
+        end
+
+        ::TimedGroupMembership.create!(
+          user_id: user.id,
+          group_id: group.id,
+          starts_at: Time.current,
+          expires_at: days.days.from_now,
+          created_by_id: current_user.id,
+          note: params[:note],
+        )
+        created += 1
+      end
+
+      render json: { created: created, skipped: skipped }
+    end
+
+    # GET /timed-groups/admin/auto_track
+    # Returns auto-track settings per group
+    def auto_track_index
+      settings = {}
+      PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups")&.each do |group_id_str, days|
+        settings[group_id_str] = days
+      end
+      render json: { auto_track: settings }
+    end
+
+    # PUT /timed-groups/admin/auto_track
+    # Set or remove auto-track for a group
+    # Params: group_id, days (0 or nil to disable)
+    def auto_track_update
+      group_id = params[:group_id].to_s
+      days     = params[:days].to_i
+
+      settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+
+      if days > 0
+        settings[group_id] = days
+      else
+        settings.delete(group_id)
+      end
+
+      PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups", settings)
+
+      render json: { auto_track: settings }
+    end
+
     def available_groups
       groups = Group.where(automatic: false).order(:name).map do |g|
-        { id: g.id, name: g.name, full_name: g.full_name }
+        auto_days = (PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {})[g.id.to_s]
+        { id: g.id, name: g.name, full_name: g.full_name, auto_track_days: auto_days }
       end
 
       render json: { groups: groups }
@@ -251,12 +315,41 @@ after_initialize do
       put    "/memberships/:id"          => "timed_groups_admin#update"
       delete "/memberships/:id"          => "timed_groups_admin#destroy"
       post   "/memberships/bulk_extend"  => "timed_groups_admin#bulk_extend"
-      get    "/groups"                   => "timed_groups_admin#available_groups"
+      post   "/memberships/bulk_import" => "timed_groups_admin#bulk_import"
+      get    "/auto_track"              => "timed_groups_admin#auto_track_index"
+      put    "/auto_track"              => "timed_groups_admin#auto_track_update"
+      get    "/groups"                  => "timed_groups_admin#available_groups"
     end
   end
 
   # ── Admin sidebar link ────────────────────────────────
   add_admin_route "timed_groups.admin_title", "timed-groups"
+
+  # ── Auto-track hook ───────────────────────────────────
+  # When a user is added to a group with auto-track enabled,
+  # automatically create a timed membership
+  on(:user_added_to_group) do |user, group, opts|
+    next unless SiteSetting.timed_groups_enabled
+
+    settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
+    days = settings[group.id.to_s]
+    next unless days.present? && days.to_i > 0
+
+    # Skip if already has a timed membership
+    next if ::TimedGroupMembership.exists?(user_id: user.id, group_id: group.id)
+
+    ::TimedGroupMembership.create!(
+      user_id: user.id,
+      group_id: group.id,
+      starts_at: Time.current,
+      expires_at: days.to_i.days.from_now,
+      note: "Auto-Track",
+    )
+
+    Rails.logger.info(
+      "[TimedGroups] Auto-tracked: user=#{user.username} group=#{group.name} days=#{days}",
+    )
+  end
 
   # ── Cleanup hook ──────────────────────────────────────
   on(:user_removed_from_group) do |user, group|

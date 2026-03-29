@@ -69,6 +69,24 @@ export default apiInitializer("0.1", (api) => {
     });
   }
 
+  async function bulkImport(groupId, days, note) {
+    return apiFetch("/memberships/bulk_import", {
+      method: "POST",
+      body: JSON.stringify({ group_id: groupId, days, note }),
+    });
+  }
+
+  async function getAutoTrack() {
+    return apiFetch("/auto_track");
+  }
+
+  async function setAutoTrack(groupId, days) {
+    return apiFetch("/auto_track", {
+      method: "PUT",
+      body: JSON.stringify({ group_id: groupId, days }),
+    });
+  }
+
   // ── User search (Discourse API) ───────────────────────
   let searchTimeout = null;
   async function searchUsers(term) {
@@ -141,9 +159,17 @@ export default apiInitializer("0.1", (api) => {
           onClick: () => showAddModal(container),
         }, "+ Mitgliedschaft"),
         el("button", {
+          className: "btn btn-primary tg-btn",
+          onClick: () => showBulkImportModal(container),
+        }, "Gruppe importieren"),
+        el("button", {
           className: "btn btn-default tg-btn",
           onClick: () => showBulkModal(container),
         }, "Alle verlaengern"),
+        el("button", {
+          className: "btn btn-default tg-btn",
+          onClick: () => showAutoTrackModal(container),
+        }, "Auto-Track"),
       ]),
     ]);
 
@@ -510,6 +536,143 @@ export default apiInitializer("0.1", (api) => {
       el("h3", {}, "Alle aktiven Mitgliedschaften verlaengern"),
       el("div", { className: "tg-form-group" }, [el("label", {}, "Gruppe:"), groupSelect]),
       el("div", { className: "tg-form-group" }, [el("label", {}, "Tage:"), daysInput]),
+      errorDiv,
+      actions,
+    );
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  function showBulkImportModal(container) {
+    removeModal();
+
+    const overlay = el("div", { className: "tg-modal-overlay", onClick: removeModal });
+    const modal = el("div", { className: "tg-modal" });
+    modal.addEventListener("click", (e) => e.stopPropagation());
+
+    const groupSelect = el("select", { className: "tg-input tg-input--wide" },
+      [el("option", { value: "" }, "Gruppe waehlen...")].concat(
+        allGroups.map((g) => {
+          const memberHint = g.full_name || g.name;
+          return el("option", { value: String(g.id) }, memberHint);
+        }),
+      ),
+    );
+
+    const daysInput = el("input", {
+      type: "number",
+      className: "tg-input",
+      value: "365",
+      min: "1",
+    });
+
+    const noteInput = el("input", {
+      type: "text",
+      className: "tg-input tg-input--wide",
+      placeholder: "z.B. Bulk Import Maerz 2026",
+    });
+
+    const errorDiv = el("div", { className: "tg-error" });
+
+    const actions = el("div", { className: "tg-modal-actions" }, [
+      el("button", {
+        className: "btn btn-primary",
+        onClick: async () => {
+          errorDiv.textContent = "";
+          if (!groupSelect.value) { errorDiv.textContent = "Bitte Gruppe waehlen"; return; }
+          const days = parseInt(daysInput.value);
+          if (!days || days < 1) { errorDiv.textContent = "Bitte gueltige Tagesanzahl eingeben"; return; }
+
+          if (!confirm(`Alle Mitglieder der Gruppe mit ${days} Tagen Laufzeit importieren?`)) return;
+
+          try {
+            const res = await bulkImport(parseInt(groupSelect.value), days, noteInput.value || null);
+            removeModal();
+            await loadData();
+            render(container);
+            alert(`${res.created} importiert, ${res.skipped} uebersprungen (bereits vorhanden).`);
+          } catch (e) {
+            errorDiv.textContent = "Fehler: " + e.message;
+          }
+        },
+      }, "Importieren"),
+      el("button", { className: "btn btn-default", onClick: removeModal }, "Abbrechen"),
+    ]);
+
+    modal.append(
+      el("h3", {}, "Gruppe importieren"),
+      el("p", { className: "tg-modal-desc" },
+        "Alle aktuellen Mitglieder einer Gruppe als zeitlich begrenzte Mitgliedschaften anlegen. " +
+        "Bereits vorhandene Eintraege werden uebersprungen."),
+      el("div", { className: "tg-form-group" }, [el("label", {}, "Gruppe:"), groupSelect]),
+      el("div", { className: "tg-form-group" }, [el("label", {}, "Laufzeit (Tage):"), daysInput]),
+      el("div", { className: "tg-form-group" }, [el("label", {}, "Notiz:"), noteInput]),
+      errorDiv,
+      actions,
+    );
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  function showAutoTrackModal(container) {
+    removeModal();
+
+    const overlay = el("div", { className: "tg-modal-overlay", onClick: removeModal });
+    const modal = el("div", { className: "tg-modal" });
+    modal.addEventListener("click", (e) => e.stopPropagation());
+
+    const errorDiv = el("div", { className: "tg-error" });
+    const listDiv = el("div", { className: "tg-auto-track-list" });
+
+    // Build list of groups with auto-track settings
+    function renderList() {
+      listDiv.innerHTML = "";
+      for (const g of allGroups) {
+        const row = el("div", { className: "tg-auto-track-row" }, [
+          el("span", { className: "tg-auto-track-name" }, g.full_name || g.name),
+          el("input", {
+            type: "number",
+            className: "tg-input tg-auto-track-days",
+            value: String(g.auto_track_days || ""),
+            min: "0",
+            placeholder: "aus",
+            "data-group-id": String(g.id),
+          }),
+          el("span", { className: "tg-auto-track-label" }, "Tage"),
+          el("button", {
+            className: `btn btn-small ${g.auto_track_days ? "btn-primary" : "btn-default"}`,
+            onClick: async () => {
+              const input = row.querySelector("input");
+              const days = parseInt(input.value) || 0;
+              try {
+                const res = await setAutoTrack(g.id, days);
+                // Update local group data
+                g.auto_track_days = days > 0 ? days : null;
+                renderList();
+              } catch (e) {
+                errorDiv.textContent = "Fehler: " + e.message;
+              }
+            },
+          }, g.auto_track_days ? "Aktiv" : "Setzen"),
+        ]);
+        listDiv.appendChild(row);
+      }
+    }
+    renderList();
+
+    const actions = el("div", { className: "tg-modal-actions" }, [
+      el("button", { className: "btn btn-default", onClick: removeModal }, "Schliessen"),
+    ]);
+
+    modal.append(
+      el("h3", {}, "Auto-Track Einstellungen"),
+      el("p", { className: "tg-modal-desc" },
+        "Wenn Auto-Track fuer eine Gruppe aktiv ist, bekommt jeder neue User automatisch " +
+        "eine zeitlich begrenzte Mitgliedschaft mit der eingestellten Laufzeit. " +
+        "Setze 0 oder leer zum Deaktivieren."),
+      listDiv,
       errorDiv,
       actions,
     );

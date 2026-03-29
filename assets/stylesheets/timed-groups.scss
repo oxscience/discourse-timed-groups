@@ -287,6 +287,41 @@
   }
 }
 
+// Modal description
+.tg-modal-desc {
+  color: var(--primary-medium);
+  font-size: 0.85em;
+  margin: -0.5em 0 1em;
+  line-height: 1.4;
+}
+
+// Auto-track
+.tg-auto-track-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0;
+
+  + .tg-auto-track-row {
+    border-top: 1px solid var(--primary-very-low);
+  }
+}
+
+.tg-auto-track-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.tg-auto-track-days {
+  width: 70px !important;
+  text-align: center;
+}
+
+.tg-auto-track-label {
+  color: var(--primary-medium);
+  font-size: 0.85em;
+}
+
 // Error
 .tg-error {
   color: var(--danger);
