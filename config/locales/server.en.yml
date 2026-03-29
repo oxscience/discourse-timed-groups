@@ -4,6 +4,7 @@ en:
     timed_groups_notify_before_expiry: "Notify users before their group access expires"
     timed_groups_notify_on_expiry: "Notify users when their group access has expired"
     timed_groups_days_before_expiry_notification: "Days before expiry to send notification"
+    timed_groups_shopify_webhook_secret: "Shopify webhook signing secret (from Shopify Admin > Settings > Notifications > Webhooks)"
   timed_groups:
     admin_title: "Timed Groups"
   system_messages:

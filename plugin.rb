@@ -2,7 +2,7 @@
 
 # name: discourse-timed-groups
 # about: Zeitlich begrenzte Gruppenmitgliedschaften fuer Discourse
-# version: 0.2.0
+# version: 0.3.0
 # authors: Pat (Out Of The Box Science)
 # url: https://github.com/oxscience/discourse-timed-groups
 # required_version: 2.7.0
@@ -220,6 +220,32 @@ after_initialize do
       render json: { auto_track: settings }
     end
 
+    # GET /timed-groups/admin/shopify
+    def shopify_config
+      product_map = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {}
+      render json: {
+        webhook_url: "#{Discourse.base_url}/webhooks/shopify/order-paid",
+        webhook_secret_configured: SiteSetting.timed_groups_shopify_webhook_secret.present?,
+        product_map: product_map,
+      }
+    end
+
+    # PUT /timed-groups/admin/shopify
+    def shopify_update
+      product_map = params[:product_map]
+
+      if product_map.present?
+        # Clean up: only keep non-empty mappings
+        cleaned = {}
+        product_map.each do |product_id, group_id|
+          cleaned[product_id.to_s] = group_id.to_s if product_id.present? && group_id.present?
+        end
+        PluginStore.set(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map", cleaned)
+      end
+
+      render json: { success: true, product_map: PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {} }
+    end
+
     def available_groups
       auto_settings = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {}
       # Migrate old format
@@ -274,6 +300,112 @@ after_initialize do
       }
     end
   end
+
+  # ── Shopify Webhook Controller ────────────────────────
+  class ::ShopifyWebhookController < ::ApplicationController
+    requires_plugin TIMED_GROUPS_PLUGIN_NAME
+    skip_before_action :verify_authenticity_token
+    skip_before_action :redirect_to_login_if_required
+
+    def order_paid
+      # 1. Verify HMAC signature
+      unless verify_shopify_hmac
+        Rails.logger.warn("[TimedGroups] Shopify webhook: invalid HMAC signature")
+        return render json: { error: "Invalid signature" }, status: 401
+      end
+
+      # 2. Parse order data
+      payload = JSON.parse(request.body.string)
+      customer_email = payload.dig("customer", "email")
+
+      unless customer_email.present?
+        Rails.logger.warn("[TimedGroups] Shopify webhook: no customer email in payload")
+        return render json: { error: "No customer email" }, status: 422
+      end
+
+      # 3. Get product-to-group mapping
+      product_map = PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "shopify_product_map") || {}
+
+      # 4. Extract product IDs from order line items
+      line_items = payload["line_items"] || []
+      product_ids = line_items.map { |item| item["product_id"].to_s }.uniq
+
+      # 5. Find matching groups
+      matched_groups = []
+      product_ids.each do |pid|
+        group_id = product_map[pid]
+        next unless group_id.present?
+        group = Group.find_by(id: group_id)
+        matched_groups << group if group
+      end
+
+      if matched_groups.empty?
+        Rails.logger.info(
+          "[TimedGroups] Shopify webhook: no matching groups for products #{product_ids.join(", ")} " \
+          "(email: #{customer_email})",
+        )
+        return render json: { status: "ok", matched: 0 }
+      end
+
+      # 6. Find or invite user
+      user = User.find_by_email(customer_email)
+      order_id = payload["id"] || payload["order_number"]
+
+      matched_groups.each do |group|
+        if user
+          # User exists → add to group (Auto-Track will handle timed membership)
+          unless group.users.include?(user)
+            group.add(user)
+            Rails.logger.info(
+              "[TimedGroups] Shopify: added #{user.username} to #{group.name} " \
+              "(order ##{order_id})",
+            )
+          end
+        else
+          # User doesn't exist → send invite to group
+          begin
+            Invite.generate(Discourse.system_user, {
+              email: customer_email,
+              group_ids: [group.id],
+              custom_message: "Willkommen! Dein Zugang zum OX Campus ist bereit.",
+            })
+            Rails.logger.info(
+              "[TimedGroups] Shopify: invited #{customer_email} to #{group.name} " \
+              "(order ##{order_id})",
+            )
+          rescue => e
+            Rails.logger.error(
+              "[TimedGroups] Shopify: invite failed for #{customer_email}: #{e.message}",
+            )
+          end
+        end
+      end
+
+      render json: { status: "ok", matched: matched_groups.length, user_found: user.present? }
+    end
+
+    private
+
+    def verify_shopify_hmac
+      secret = SiteSetting.timed_groups_shopify_webhook_secret
+      return false if secret.blank?
+
+      request.body.rewind
+      data = request.body.read
+      request.body.rewind
+
+      hmac_header = request.headers["X-Shopify-Hmac-Sha256"]
+      return false if hmac_header.blank?
+
+      digest = OpenSSL::HMAC.digest("sha256", secret, data)
+      calculated = Base64.strict_encode64(digest)
+
+      ActiveSupport::SecurityUtils.secure_compare(calculated, hmac_header)
+    end
+  end
+
+  # ── Shopify Admin Endpoints ──────────────────────────
+  # (added to existing admin controller below)
 
   # ── Scheduled Job ─────────────────────────────────────
   module Jobs
@@ -337,8 +469,13 @@ after_initialize do
       post   "/memberships/bulk_import" => "timed_groups_admin#bulk_import"
       get    "/auto_track"              => "timed_groups_admin#auto_track_index"
       put    "/auto_track"              => "timed_groups_admin#auto_track_update"
+      get    "/shopify"                 => "timed_groups_admin#shopify_config"
+      put    "/shopify"                 => "timed_groups_admin#shopify_update"
       get    "/groups"                  => "timed_groups_admin#available_groups"
     end
+
+    # Shopify webhook (public, HMAC-verified)
+    post "/webhooks/shopify/order-paid" => "shopify_webhook#order_paid"
   end
 
   # ── Admin sidebar link ────────────────────────────────

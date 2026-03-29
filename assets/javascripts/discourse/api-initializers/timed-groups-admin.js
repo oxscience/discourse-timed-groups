@@ -87,6 +87,17 @@ export default apiInitializer("0.1", (api) => {
     });
   }
 
+  async function getShopifyConfig() {
+    return apiFetch("/shopify");
+  }
+
+  async function updateShopifyConfig(productMap) {
+    return apiFetch("/shopify", {
+      method: "PUT",
+      body: JSON.stringify({ product_map: productMap }),
+    });
+  }
+
   // ── User search (Discourse API) ───────────────────────
   let searchTimeout = null;
   async function searchUsers(term) {
@@ -170,6 +181,10 @@ export default apiInitializer("0.1", (api) => {
           className: "btn btn-default tg-btn",
           onClick: () => showAutoTrackModal(container),
         }, "Auto-Track"),
+        el("button", {
+          className: "btn btn-default tg-btn",
+          onClick: () => showShopifyModal(container),
+        }, "Shopify"),
       ]),
     ]);
 
@@ -734,6 +749,152 @@ export default apiInitializer("0.1", (api) => {
       listDiv,
       errorDiv,
       actions,
+    );
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  function showShopifyModal(container) {
+    removeModal();
+
+    const overlay = el("div", { className: "tg-modal-overlay", onClick: removeModal });
+    const modal = el("div", { className: "tg-modal tg-modal--wide" });
+    modal.addEventListener("click", (e) => e.stopPropagation());
+
+    const errorDiv = el("div", { className: "tg-error" });
+    const contentDiv = el("div", {});
+
+    // Load config
+    (async () => {
+      try {
+        const config = await getShopifyConfig();
+
+        // Webhook URL (copy-paste fuer Shopify Admin)
+        const webhookUrl = el("div", { className: "tg-shopify-url" }, [
+          el("label", {}, "Webhook-URL (in Shopify eintragen):"),
+          el("div", { className: "tg-shopify-url-box" }, [
+            el("code", {}, config.webhook_url),
+            el("button", {
+              className: "btn btn-small btn-default",
+              onClick: () => {
+                navigator.clipboard.writeText(config.webhook_url);
+                alert("URL kopiert!");
+              },
+            }, "Kopieren"),
+          ]),
+        ]);
+
+        // Secret status
+        const secretStatus = el("div", { className: "tg-shopify-secret" }, [
+          el("label", {}, "Webhook-Secret:"),
+          el("span", {
+            className: config.webhook_secret_configured ? "tg-badge tg-badge--active" : "tg-badge tg-badge--expired",
+          }, config.webhook_secret_configured ? "Konfiguriert" : "Nicht gesetzt"),
+          el("span", { className: "tg-shopify-hint" },
+            " (unter Admin > Einstellungen > \"shopify\" suchen)"),
+        ]);
+
+        // Product mapping
+        const mappingDiv = el("div", { className: "tg-shopify-mapping" });
+        const mappings = Object.entries(config.product_map || {});
+
+        function renderMappings(currentMappings) {
+          mappingDiv.innerHTML = "";
+
+          mappingDiv.appendChild(el("label", {}, "Produkt-ID → Gruppe Zuordnung:"));
+
+          if (currentMappings.length === 0) {
+            mappingDiv.appendChild(
+              el("p", { className: "tg-shopify-hint" }, "Noch keine Zuordnungen. Klicke \"+\" um eine hinzuzufuegen."),
+            );
+          }
+
+          for (const [idx, [productId, groupId]] of currentMappings.entries()) {
+            const groupSelect = el("select", { className: "tg-input" },
+              [el("option", { value: "" }, "Gruppe...")].concat(
+                allGroups.map((g) => {
+                  const opt = el("option", { value: String(g.id) }, g.full_name || g.name);
+                  if (String(g.id) === String(groupId)) opt.selected = true;
+                  return opt;
+                }),
+              ),
+            );
+
+            const prodInput = el("input", {
+              type: "text",
+              className: "tg-input tg-shopify-product-input",
+              value: productId,
+              placeholder: "Shopify Produkt-ID",
+            });
+
+            const removeBtn = el("button", {
+              className: "btn btn-small btn-danger",
+              onClick: () => {
+                currentMappings.splice(idx, 1);
+                renderMappings(currentMappings);
+              },
+            }, "×");
+
+            // Update mapping on change
+            prodInput.addEventListener("input", () => { currentMappings[idx][0] = prodInput.value; });
+            groupSelect.addEventListener("change", () => { currentMappings[idx][1] = groupSelect.value; });
+
+            mappingDiv.appendChild(
+              el("div", { className: "tg-shopify-mapping-row" }, [prodInput, el("span", {}, "→"), groupSelect, removeBtn]),
+            );
+          }
+
+          // Add button
+          mappingDiv.appendChild(
+            el("button", {
+              className: "btn btn-small btn-default",
+              onClick: () => {
+                currentMappings.push(["", ""]);
+                renderMappings(currentMappings);
+              },
+            }, "+ Zuordnung"),
+          );
+        }
+
+        const currentMappings = mappings.map(([k, v]) => [k, v]);
+        renderMappings(currentMappings);
+
+        // Save button
+        const saveBtn = el("button", {
+          className: "btn btn-primary",
+          onClick: async () => {
+            errorDiv.textContent = "";
+            const map = {};
+            for (const [pid, gid] of currentMappings) {
+              if (pid && gid) map[pid] = gid;
+            }
+            try {
+              await updateShopifyConfig(map);
+              alert("Shopify-Konfiguration gespeichert!");
+            } catch (e) {
+              errorDiv.textContent = "Fehler: " + e.message;
+            }
+          },
+        }, "Speichern");
+
+        contentDiv.append(webhookUrl, secretStatus, mappingDiv, errorDiv,
+          el("div", { className: "tg-modal-actions" }, [
+            saveBtn,
+            el("button", { className: "btn btn-default", onClick: removeModal }, "Schliessen"),
+          ]),
+        );
+      } catch (e) {
+        contentDiv.innerHTML = `<div class="tg-error">Fehler beim Laden: ${e.message}</div>`;
+      }
+    })();
+
+    modal.append(
+      el("h3", {}, "Shopify-Integration"),
+      el("p", { className: "tg-modal-desc" },
+        "Verbindet Shopify-Kaeufe mit Discourse-Gruppenzugaengen. " +
+        "Wenn ein Kunde ein zugeordnetes Produkt kauft, wird er automatisch zur Gruppe hinzugefuegt."),
+      contentDiv,
     );
 
     overlay.appendChild(modal);

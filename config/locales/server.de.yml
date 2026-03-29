@@ -4,6 +4,7 @@ de:
     timed_groups_notify_before_expiry: "Nutzer vor Ablauf ihres Gruppenzugangs benachrichtigen"
     timed_groups_notify_on_expiry: "Nutzer bei Ablauf ihres Gruppenzugangs benachrichtigen"
     timed_groups_days_before_expiry_notification: "Tage vor Ablauf fuer Benachrichtigung"
+    timed_groups_shopify_webhook_secret: "Shopify Webhook-Secret (aus Shopify Admin > Einstellungen > Benachrichtigungen > Webhooks)"
   timed_groups:
     admin_title: "Zeitgruppen"
   system_messages:
