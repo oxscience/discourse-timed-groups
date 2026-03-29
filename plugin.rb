@@ -306,6 +306,8 @@ after_initialize do
     requires_plugin TIMED_GROUPS_PLUGIN_NAME
     skip_before_action :verify_authenticity_token
     skip_before_action :redirect_to_login_if_required
+    skip_before_action :check_xhr
+    skip_before_action :preload_json
 
     def order_paid
       # 1. Verify HMAC signature
