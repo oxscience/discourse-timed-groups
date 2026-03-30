@@ -1,6 +1,6 @@
 # discourse-timed-groups
 
-Discourse-Plugin fuer zeitlich begrenzte Gruppenmitgliedschaften. Vergibt Zugang zu Gruppen fuer eine bestimmte Dauer und entfernt User automatisch nach Ablauf.
+Discourse-Plugin fuer zeitlich begrenzte Gruppenmitgliedschaften mit Shopify-Integration. Vergibt Zugang zu Gruppen fuer eine bestimmte Dauer und entfernt User automatisch nach Ablauf.
 
 Entwickelt fuer [campus.outoftheb-ox.de](https://campus.outoftheb-ox.de) (Out Of The Box Science).
 
@@ -11,9 +11,11 @@ Entwickelt fuer [campus.outoftheb-ox.de](https://campus.outoftheb-ox.de) (Out Of
   - **Individuell** — jeder User bekommt eigene X Tage ab Beitritt (z.B. Kurs-Zugang)
   - **Gruppenlizenz** — festes Ablaufdatum fuer alle, Nachzuegler bekommen Restlaufzeit (z.B. Firmen-Lizenzen)
 - **Auto-Track** — neue Gruppenmitglieder bekommen automatisch eine zeitlich begrenzte Mitgliedschaft
+- **Shopify-Integration** — Webhook empfaengt Kaufbenachrichtigungen und fuegt Kaeufer automatisch zur richtigen Gruppe hinzu
 - **Bulk Import** — alle bestehenden Mitglieder einer Gruppe auf einen Schlag importieren
 - **Bulk Extend** — alle aktiven Mitgliedschaften einer Gruppe verlaengern
-- **Benachrichtigungen** — PM an User 7 Tage vor Ablauf + bei Ablauf
+- **Benachrichtigungen** — PM an User 7 Tage vor Ablauf + bei Ablauf, mit optionalem Shopify-Verlaengerungslink
+- **Anpassbare Nachrichtentexte** — Betreff und Text der PMs direkt im Admin-Panel bearbeiten
 - **Admin-Panel** unter Admin > Plugins > Zeitlich begrenzte Gruppen
 
 ## Installation
@@ -57,6 +59,30 @@ Pro Gruppe konfigurierbar:
 ### Alle verlaengern
 Alle aktiven Mitgliedschaften einer Gruppe um X Tage verlaengern.
 
+### Shopify-Integration
+Verbindet Shopify-Kaeufe mit Discourse-Gruppenzugaengen:
+
+1. **Webhook-URL** aus dem Shopify-Modal kopieren
+2. In **Shopify Admin > Einstellungen > Benachrichtigungen > Webhooks** eintragen (Event: "Order payment")
+3. **Webhook-Secret** in Discourse-Einstellungen eintragen (`timed_groups_shopify_webhook_secret`)
+4. **Produkt-zu-Gruppe-Mapping** im Shopify-Modal konfigurieren (Shopify Produkt-ID → Discourse-Gruppe)
+5. **Verlaengerungs-Links** pro Gruppe setzen (Shopify-Produkt-URL, wird in Ablauf-PMs angezeigt)
+
+Ablauf bei Kauf:
+- Bestehender User → wird automatisch zur Gruppe hinzugefuegt, Auto-Track greift
+- Neuer User → erhaelt Discourse-Einladung per E-Mail, wird bei Annahme zur Gruppe hinzugefuegt
+
+### Nachrichtentexte anpassen
+Betreff und Text der Ablauf-Benachrichtigungen direkt im Admin-Panel bearbeiten. Unterstuetzte Platzhalter:
+
+| Platzhalter | Beschreibung |
+|-------------|-------------|
+| `{username}` | Benutzername |
+| `{group_name}` | Gruppenname |
+| `{days_remaining}` | Verbleibende Tage |
+| `{expires_at}` | Ablaufdatum |
+| `{renew_link}` | Verlaengerungslink (aus Shopify-Konfiguration) oder Fallback-Text |
+
 ## Einstellungen
 
 Unter Admin > Einstellungen nach "timed" suchen:
@@ -67,10 +93,12 @@ Unter Admin > Einstellungen nach "timed" suchen:
 | `timed_groups_notify_before_expiry` | true | Benachrichtigung vor Ablauf |
 | `timed_groups_notify_on_expiry` | true | Benachrichtigung bei Ablauf |
 | `timed_groups_days_before_expiry_notification` | 7 | Tage vor Ablauf fuer Warnung |
+| `timed_groups_shopify_webhook_secret` | — | Shopify Webhook-Signaturschluessel |
+| `timed_groups_shopify_shop_url` | — | Shopify Shop-URL |
 
 ## API Endpoints
 
-Alle Endpoints erfordern Admin-Rechte.
+### Admin (erfordern Admin-Rechte)
 
 | Methode | Endpoint | Beschreibung |
 |---------|----------|-------------|
@@ -82,13 +110,25 @@ Alle Endpoints erfordern Admin-Rechte.
 | POST | `/timed-groups/admin/memberships/bulk_import` | Gruppe importieren |
 | GET | `/timed-groups/admin/auto_track` | Auto-Track Einstellungen |
 | PUT | `/timed-groups/admin/auto_track` | Auto-Track konfigurieren |
+| GET | `/timed-groups/admin/shopify` | Shopify-Konfiguration |
+| PUT | `/timed-groups/admin/shopify` | Shopify-Mapping aktualisieren |
+| GET | `/timed-groups/admin/messages` | Nachrichtentexte |
+| PUT | `/timed-groups/admin/messages` | Nachrichtentexte aktualisieren |
 | GET | `/timed-groups/admin/groups` | Verfuegbare Gruppen |
+
+### Webhook (HMAC-verifiziert, kein Login)
+
+| Methode | Endpoint | Beschreibung |
+|---------|----------|-------------|
+| POST | `/webhooks/shopify/order-paid` | Shopify Order-Webhook |
 
 ## Technische Details
 
 - **Datenbank:** Eigene Tabelle `timed_group_memberships` (user_id, group_id, starts_at, expires_at, note, etc.)
 - **Background Job:** Sidekiq Scheduled Job prueft stuendlich auf abgelaufene Mitgliedschaften
-- **Auto-Track Konfiguration:** Gespeichert via PluginStore
+- **Auto-Track Konfiguration:** Gespeichert via PluginStore (zwei Modi: individual, license)
+- **Shopify-Webhook:** HMAC-SHA256-Signaturverifizierung, Produkt-zu-Gruppe-Mapping via PluginStore
+- **Nachrichtentexte:** Anpassbar via PluginStore, Platzhalter-System
 - **Frontend:** Vanilla JS Admin-Panel (kein Ember)
 - **Hooks:** `user_added_to_group` (Auto-Track), `user_removed_from_group` (Cleanup)
 
