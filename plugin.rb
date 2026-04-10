@@ -2,7 +2,7 @@
 
 # name: discourse-timed-groups
 # about: Zeitlich begrenzte Gruppenmitgliedschaften fuer Discourse
-# version: 0.3.0
+# version: 0.4.0
 # authors: Pat (Out Of The Box Science)
 # url: https://github.com/oxscience/discourse-timed-groups
 # required_version: 2.7.0
@@ -386,8 +386,12 @@ after_initialize do
 
       matched_groups.each do |group|
         if user
-          # User exists → add to group (Auto-Track will handle timed membership)
-          unless group.users.include?(user)
+          if group.users.include?(user)
+            # RENEWAL: user already in group → extend existing TimedGroupMembership
+            # kulant (remaining time + new period added on top)
+            extend_membership_for_renewal(user, group, order_id)
+          else
+            # NEW: add to group → :user_added_to_group hook creates timed membership
             group.add(user)
             Rails.logger.info(
               "[TimedGroups] Shopify: added #{user.username} to #{group.name} " \
@@ -418,6 +422,44 @@ after_initialize do
     end
 
     private
+
+    def extend_membership_for_renewal(user, group, order_id)
+      setting = (PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {})[group.id.to_s]
+
+      unless setting.is_a?(Hash) && setting["mode"] == "individual" && setting["days"].to_i > 0
+        Rails.logger.info(
+          "[TimedGroups] Shopify renewal: no individual auto-track for group " \
+          "#{group.name}, skipping extension (user=#{user.username})",
+        )
+        return
+      end
+
+      days = setting["days"].to_i
+      membership = ::TimedGroupMembership.find_or_initialize_by(
+        user_id: user.id,
+        group_id: group.id,
+      )
+
+      # kulant: add new period on top of remaining time; if expired/new, start from now
+      base =
+        if membership.persisted? && membership.expires_at && membership.expires_at > Time.current
+          membership.expires_at
+        else
+          Time.current
+        end
+
+      membership.starts_at ||= Time.current
+      membership.expires_at = base + days.days
+      membership.notified_expiring = false
+      membership.note = "Shopify renewal order ##{order_id}"
+      membership.save!
+
+      Rails.logger.info(
+        "[TimedGroups] Shopify renewal: extended #{user.username} in #{group.name} " \
+        "by #{days}d until #{membership.expires_at.strftime("%Y-%m-%d")} " \
+        "(order ##{order_id})",
+      )
+    end
 
     def verify_shopify_hmac
       secret = SiteSetting.timed_groups_shopify_webhook_secret
