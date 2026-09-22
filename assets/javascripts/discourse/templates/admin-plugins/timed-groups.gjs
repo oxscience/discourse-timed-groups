@@ -1,0 +1,5 @@
+<template>
+  <div class="admin-plugin-config-page" id="timed-groups-admin">
+    <div class="tg-loading">Lade Daten...</div>
+  </div>
+</template>
