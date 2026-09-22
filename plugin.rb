@@ -393,6 +393,7 @@ after_initialize do
           else
             # NEW: add to group → :user_added_to_group hook creates timed membership
             group.add(user)
+            send_welcome_pm(user)
             Rails.logger.info(
               "[TimedGroups] Shopify: added #{user.username} to #{group.name} " \
               "(order ##{order_id})",
@@ -404,7 +405,7 @@ after_initialize do
             Invite.generate(Discourse.system_user, {
               email: customer_email,
               group_ids: [group.id],
-              custom_message: "Willkommen! Dein Zugang zum OX Campus ist bereit.",
+              custom_message: "Servus, schön, dass du dabei bist :-) Nimm die Einladung an und leg dein Passwort fest, dann ist dein Campus-Zugang sofort freigeschaltet. LG aus Köln, Patrick",
             })
             Rails.logger.info(
               "[TimedGroups] Shopify: invited #{customer_email} to #{group.name} " \
@@ -422,6 +423,25 @@ after_initialize do
     end
 
     private
+
+    def send_welcome_pm(user)
+      first_name = user.name.to_s.split.first.presence || user.username
+      PostCreator.create!(
+        User.find_by(username: "Pat") || Discourse.system_user,
+        title: "Willkommen im OX Campus",
+        raw: "Servus #{first_name},\n\n" \
+             "schön, dass du dabei bist :-) Dein Kauf ist durch, ich hab deinen Account auf Pro gestellt. " \
+             "Du kommst damit an alle Inhalte, und zwar dauerhaft.\n\n" \
+             "Einloggen geht immer über https://app.outoftheb-ox.de. " \
+             "Wenn irgendwas hakt, antworte einfach auf diese Nachricht.\n\n" \
+             "LG aus Köln\nPatrick",
+        archetype: Archetype.private_message,
+        target_usernames: [user.username],
+        skip_validations: true,
+      )
+    rescue => e
+      Rails.logger.error("[TimedGroups] Shopify: welcome PM failed for #{user.username}: #{e.message}")
+    end
 
     def extend_membership_for_renewal(user, group, order_id)
       setting = (PluginStore.get(TIMED_GROUPS_PLUGIN_NAME, "auto_track_groups") || {})[group.id.to_s]
