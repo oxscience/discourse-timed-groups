@@ -1,0 +1,23 @@
+{%- comment -%}
+  OX Campus: access notice in the Shopify order confirmation.
+  Paste into Shopify Admin > Settings > Notifications > Order confirmation > Edit code,
+  on the line right after <p>{{ email_body }}</p>. Only renders when the campus product
+  (10224861184327) is in the order; title match is the fallback if product_id is unavailable.
+{%- endcomment -%}
+{%- assign ox_campus = false -%}
+{%- for line in line_items -%}
+  {%- assign ox_pid = line.product_id | default: line.product.id | append: '' -%}
+  {%- if ox_pid == '10224861184327' or line.product.title == 'OX Campus' -%}{%- assign ox_campus = true -%}{%- endif -%}
+{%- endfor -%}
+{%- if ox_campus -%}
+<table style="width:100%;margin:24px 0;border:1px solid #e5e5e5;border-radius:8px;border-collapse:separate;">
+  <tr>
+    <td style="padding:20px;">
+      <h3 style="margin:0 0 12px;">Dein Zugang zum OX Campus</h3>
+      <p style="margin:0 0 12px;"><strong>Schon einen Campus-Account mit dieser Mailadresse?</strong> Dann ist dein Zugang bereits freigeschaltet, und zwar dauerhaft. Einloggen kannst du dich unter <a href="https://app.outoftheb-ox.de">app.outoftheb-ox.de</a>.</p>
+      <p style="margin:0 0 12px;"><strong>Neu im Campus?</strong> In den nächsten Minuten kommt eine Einladung von campus@outoftheb-ox.de. Einladung annehmen, Passwort festlegen, fertig. Falls nichts ankommt, schau bitte kurz im Spam-Ordner nach.</p>
+      <p style="margin:0;"><strong>Dein Account läuft über eine andere Mailadresse?</strong> Antworte einfach auf diese Mail, dann schalte ich ihn frei.</p>
+    </td>
+  </tr>
+</table>
+{%- endif -%}

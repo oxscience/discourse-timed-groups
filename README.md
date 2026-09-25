@@ -71,6 +71,7 @@ Verbindet Shopify-Kaeufe mit Discourse-Gruppenzugaengen:
 Ablauf bei Kauf:
 - Bestehender User → wird automatisch zur Gruppe hinzugefuegt, Auto-Track greift
 - Neuer User → erhaelt Discourse-Einladung per E-Mail, wird bei Annahme zur Gruppe hinzugefuegt
+- Zugangs-Hinweis in der Shopify-Bestellbestaetigung: `shopify/order-confirmation-campus.liquid` (manuell im Shopify-Admin eingefuegt, keine API)
 
 ### Nachrichtentexte anpassen
 Betreff und Text der Ablauf-Benachrichtigungen direkt im Admin-Panel bearbeiten. Unterstuetzte Platzhalter:
